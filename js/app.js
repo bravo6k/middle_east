@@ -8,6 +8,14 @@ let mapLayers = [];
 let countryPickerMap = null;
 let countryPickerLayers = [];
 let countryPickerHighlight = null;
+let currentSearchQuery = '';
+let currentSearchResults = [];
+let activeSearchResultIndex = 0;
+let highlightedEventId = null;
+let highlightResetTimer = null;
+const sortedEvents = [...events].sort((a, b) => a.sortKey - b.sortKey);
+const countryLookup = new Map(COUNTRIES.map(item => [item.id, item]));
+const conflictLookup = new Map(CONFLICTS.map(item => [item.id, item]));
 
 const eraLabels = {
   ancient: '🏛 古代文明  BC 3500-AD 200',
@@ -33,8 +41,54 @@ function escapeInlineArg(value) {
   return String(value).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\r?\n/g, ' ');
 }
 
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function normalizeSearchText(value) {
+  return String(value || '')
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[^\w\u4e00-\u9fff]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function getDetail(key) {
   return DETAILS[key] || p('该事件深度内容正在整理中。');
+}
+
+function getEventById(eventId) {
+  return sortedEvents.find(event => event.id === eventId) || null;
+}
+
+function getEventByDetailKey(detailKey) {
+  return sortedEvents.find(event => event.me?.dk === detailKey || event.world?.dk === detailKey) || null;
+}
+
+function getCountryLabel(countryId) {
+  const country = countryLookup.get(countryId);
+  return country ? (country.shortName || country.name) : countryId;
+}
+
+function getConflictLabel(conflictId) {
+  const conflict = conflictLookup.get(conflictId);
+  return conflict ? (conflict.shortName || conflict.name) : conflictId;
+}
+
+function getCountrySearchTerms(countryId) {
+  const country = countryLookup.get(countryId);
+  return country ? [country.name, country.shortName].filter(Boolean) : [countryId];
+}
+
+function getConflictSearchTerms(conflictId) {
+  const conflict = conflictLookup.get(conflictId);
+  return conflict ? [conflict.name, conflict.shortName].filter(Boolean) : [conflictId];
 }
 
 function getCurrentSelection() {
@@ -57,9 +111,184 @@ function clearExpandedSections() {
   expandedSections.clear();
 }
 
+function syncModeUI() {
+  document.querySelectorAll('.mode-btn').forEach(item => {
+    item.classList.toggle('active', item.dataset.mode === currentMode);
+  });
+  document.querySelectorAll('.sub-btn').forEach(item => item.classList.remove('active'));
+  document.getElementById('countrySel').classList.toggle('open', currentMode === 'country');
+  document.getElementById('conflictSel').classList.toggle('open', currentMode === 'conflict');
+}
+
+function switchMode(mode, options = {}) {
+  const { resetSelection = true, rerender = true } = options;
+  currentMode = mode;
+
+  if (resetSelection) {
+    currentCountry = null;
+    currentConflict = null;
+    clearExpandedSections();
+    if (countryPickerHighlight && countryPickerMap) {
+      countryPickerMap.removeLayer(countryPickerHighlight);
+      countryPickerHighlight = null;
+    }
+  }
+
+  syncModeUI();
+
+  if (currentMode === 'country') {
+    ensureCountryPickerMap();
+    setTimeout(() => {
+      countryPickerMap && countryPickerMap.invalidateSize();
+      syncCountryPickerSelection();
+    }, 0);
+  }
+
+  if (rerender) {
+    renderOverview();
+    rebuildTimeline();
+  }
+}
+
+function syncEraFilters() {
+  document.querySelectorAll('.filter-btn').forEach(item => {
+    item.classList.toggle('active', item.dataset.era === currentEra);
+  });
+}
+
+function buildSearchIndexText(event) {
+  const segments = [
+    event.id,
+    event.year,
+    event.yearShort,
+    event.era,
+    event.me?.tag,
+    event.me?.title,
+    event.me?.meta,
+    event.me?.desc,
+    event.world?.tag,
+    event.world?.title,
+    event.world?.desc,
+    ...(event.countries || []).flatMap(getCountrySearchTerms),
+    ...(event.themes || []).flatMap(getConflictSearchTerms)
+  ];
+
+  return normalizeSearchText(segments.filter(Boolean).join(' '));
+}
+
+function getSearchTokens(query) {
+  const normalized = normalizeSearchText(query);
+  if (!normalized) return [];
+  return normalized.split(' ').filter(Boolean);
+}
+
+function scoreEventMatch(event, tokens, normalizedQuery) {
+  const title = normalizeSearchText(event.me?.title || event.world?.title || '');
+  const tag = normalizeSearchText(event.me?.tag || event.world?.tag || '');
+  const meta = normalizeSearchText(event.me?.meta || '');
+  const desc = normalizeSearchText(event.me?.desc || event.world?.desc || '');
+  const year = normalizeSearchText(`${event.year} ${event.yearShort}`);
+  const lines = normalizeSearchText([
+    ...(event.countries || []).flatMap(getCountrySearchTerms),
+    ...(event.themes || []).flatMap(getConflictSearchTerms)
+  ].join(' '));
+
+  let score = 0;
+
+  if (title === normalizedQuery) score += 120;
+  else if (title.includes(normalizedQuery)) score += 80;
+
+  if (tag === normalizedQuery) score += 90;
+  else if (tag.includes(normalizedQuery)) score += 48;
+
+  if (year.includes(normalizedQuery)) score += 42;
+  if (lines.includes(normalizedQuery)) score += 28;
+  if (meta.includes(normalizedQuery)) score += 24;
+  if (desc.includes(normalizedQuery)) score += 16;
+
+  tokens.forEach(token => {
+    if (title.includes(token)) score += 26;
+    if (tag.includes(token)) score += 18;
+    if (year.includes(token)) score += 14;
+    if (lines.includes(token)) score += 11;
+    if (meta.includes(token)) score += 9;
+    if (desc.includes(token)) score += 6;
+  });
+
+  return score;
+}
+
+function findMatchingEvents(query, limit = 8) {
+  const normalizedQuery = normalizeSearchText(query);
+  const tokens = getSearchTokens(query);
+  if (!normalizedQuery || tokens.length === 0) return [];
+
+  return sortedEvents
+    .map(event => {
+      const haystack = buildSearchIndexText(event);
+      const matched = tokens.every(token => haystack.includes(token));
+      if (!matched) return null;
+
+      return {
+        event,
+        score: scoreEventMatch(event, tokens, normalizedQuery)
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.score - a.score || b.event.sortKey - a.event.sortKey)
+    .slice(0, limit)
+    .map(item => item.event);
+}
+
+function buildSearchResultLines(event) {
+  const labels = [
+    ...(event.countries || []).slice(0, 3).map(countryId => `<span class="line-badge country">${escapeHtml(getCountryLabel(countryId))}</span>`),
+    ...(event.themes || []).slice(0, 2).map(themeId => `<span class="line-badge conflict">${escapeHtml(getConflictLabel(themeId))}</span>`)
+  ];
+
+  if (labels.length === 0) return '';
+  return `<div class="search-result-lines">${labels.join('')}</div>`;
+}
+
+function renderSearchResults() {
+  const container = document.getElementById('eventSearchResults');
+  currentSearchResults = findMatchingEvents(currentSearchQuery);
+
+  if (!currentSearchQuery.trim()) {
+    container.hidden = true;
+    container.innerHTML = '';
+    activeSearchResultIndex = 0;
+    return;
+  }
+
+  if (currentSearchResults.length === 0) {
+    container.hidden = false;
+    container.innerHTML = '<div class="search-empty">没有找到对应事件。可以试试年份、国家名、专题名，或换成更短的关键词。</div>';
+    activeSearchResultIndex = 0;
+    return;
+  }
+
+  if (activeSearchResultIndex >= currentSearchResults.length) activeSearchResultIndex = 0;
+
+  container.hidden = false;
+  container.innerHTML = currentSearchResults.map((event, index) => `
+    <button class="search-result-btn ${index === activeSearchResultIndex ? 'active' : ''}" type="button" data-search-event="${event.id}">
+      <div class="search-result-top">
+        <div class="search-result-kicker">${escapeHtml(event.me?.tag || '区域节点')}</div>
+        <div class="search-result-year">${escapeHtml(event.year)}</div>
+      </div>
+      <div class="search-result-title">${escapeHtml(event.me?.title || event.id)}</div>
+      <div class="search-result-meta">${escapeHtml(event.me?.meta || event.me?.desc || '')}</div>
+      ${buildSearchResultLines(event)}
+    </button>
+  `).join('');
+}
+
 function initNavigation() {
   const countrySel = document.getElementById('countrySel');
   const conflictSel = document.getElementById('conflictSel');
+  const searchInput = document.getElementById('eventSearchInput');
+  const searchResults = document.getElementById('eventSearchResults');
 
   countrySel.innerHTML = `
     <div class="country-map-shell">
@@ -77,32 +306,7 @@ function initNavigation() {
   document.getElementById('modeBar').addEventListener('click', event => {
     const button = event.target.closest('.mode-btn');
     if (!button) return;
-
-    currentMode = button.dataset.mode;
-    currentCountry = null;
-    currentConflict = null;
-    clearExpandedSections();
-    if (countryPickerHighlight && countryPickerMap) {
-      countryPickerMap.removeLayer(countryPickerHighlight);
-      countryPickerHighlight = null;
-    }
-
-    document.querySelectorAll('.mode-btn').forEach(item => item.classList.remove('active'));
-    button.classList.add('active');
-    document.querySelectorAll('.sub-btn').forEach(item => item.classList.remove('active'));
-
-    document.getElementById('countrySel').classList.toggle('open', currentMode === 'country');
-    document.getElementById('conflictSel').classList.toggle('open', currentMode === 'conflict');
-
-    if (currentMode === 'country') {
-      ensureCountryPickerMap();
-      setTimeout(() => {
-        countryPickerMap && countryPickerMap.invalidateSize();
-        syncCountryPickerSelection();
-      }, 0);
-    }
-    renderOverview();
-    rebuildTimeline();
+    switchMode(button.dataset.mode);
   });
 
   countrySel.addEventListener('click', event => {
@@ -130,6 +334,49 @@ function initNavigation() {
     if (expandedSections.has(sectionKey)) expandedSections.delete(sectionKey);
     else expandedSections.add(sectionKey);
     rebuildTimeline();
+  });
+
+  searchInput.addEventListener('input', event => {
+    currentSearchQuery = event.target.value;
+    activeSearchResultIndex = 0;
+    renderSearchResults();
+  });
+
+  searchInput.addEventListener('keydown', event => {
+    if (event.key === 'ArrowDown' && currentSearchResults.length > 0) {
+      event.preventDefault();
+      activeSearchResultIndex = (activeSearchResultIndex + 1) % currentSearchResults.length;
+      renderSearchResults();
+      return;
+    }
+
+    if (event.key === 'ArrowUp' && currentSearchResults.length > 0) {
+      event.preventDefault();
+      activeSearchResultIndex = (activeSearchResultIndex - 1 + currentSearchResults.length) % currentSearchResults.length;
+      renderSearchResults();
+      return;
+    }
+
+    if (event.key === 'Enter' && currentSearchResults.length > 0) {
+      event.preventDefault();
+      openSearchResult(currentSearchResults[activeSearchResultIndex].id);
+      return;
+    }
+
+    if (event.key === 'Escape' && currentSearchQuery) {
+      event.preventDefault();
+      currentSearchQuery = '';
+      currentSearchResults = [];
+      activeSearchResultIndex = 0;
+      searchInput.value = '';
+      renderSearchResults();
+    }
+  });
+
+  searchResults.addEventListener('click', event => {
+    const button = event.target.closest('[data-search-event]');
+    if (!button) return;
+    openSearchResult(button.dataset.searchEvent);
   });
 
   ensureCountryPickerMap();
@@ -186,7 +433,7 @@ function selectCountry(countryId) {
 }
 
 function getFilteredEvents() {
-  const sorted = [...events].sort((a, b) => a.sortKey - b.sortKey);
+  const sorted = [...sortedEvents];
   let filtered = sorted.filter(event => event.lineTypes?.includes(currentMode));
 
   if (currentMode === 'country') {
@@ -283,18 +530,50 @@ function buildLineBadges(event, limit = 4) {
   const badges = [];
 
   (event.countries || []).slice(0, limit).forEach(countryId => {
-    const country = COUNTRIES.find(item => item.id === countryId);
+    const country = countryLookup.get(countryId);
     if (country) badges.push(`<span class="line-badge country">${country.shortName || country.name}</span>`);
   });
 
   const remaining = Math.max(0, limit - badges.length);
   (event.themes || []).slice(0, remaining).forEach(themeId => {
-    const conflict = CONFLICTS.find(item => item.id === themeId);
+    const conflict = conflictLookup.get(themeId);
     if (conflict) badges.push(`<span class="line-badge conflict">${conflict.shortName || conflict.name}</span>`);
   });
 
   if (badges.length === 0) return '';
   return `<div class="line-badges">${badges.join('')}</div>`;
+}
+
+function highlightEventTarget(eventId) {
+  highlightedEventId = eventId;
+  if (highlightResetTimer) clearTimeout(highlightResetTimer);
+  highlightResetTimer = setTimeout(() => {
+    highlightedEventId = null;
+    document.querySelectorAll('.highlight-target').forEach(node => node.classList.remove('highlight-target'));
+  }, 2600);
+}
+
+function revealEventInTimeline(eventId) {
+  const target = document.querySelector(`[data-event-id="${eventId}"]`);
+  if (!target) return;
+  target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+function openSearchResult(eventId) {
+  const event = getEventById(eventId);
+  if (!event) return;
+
+  currentEra = 'all';
+  syncEraFilters();
+  switchMode('regional', { rerender: false });
+  clearExpandedSections();
+  expandedSections.add(getSectionKey(event.era));
+  highlightEventTarget(event.id);
+  renderOverview();
+  rebuildTimeline();
+  document.getElementById('eventSearchInput').blur();
+  setTimeout(() => revealEventInTimeline(event.id), 70);
+  openDetailByEvent(event);
 }
 
 function buildRegionalRows(eraEvents) {
@@ -304,6 +583,7 @@ function buildRegionalRows(eraEvents) {
     const meTitle = escapeInlineArg(event.me?.title || '');
     const worldTag = escapeInlineArg(event.world?.tag || '');
     const worldTitle = escapeInlineArg(event.world?.title || '');
+    const rowClass = event.id === highlightedEventId ? ' highlight-target' : '';
 
     const meCard = event.me ? `<div class="event-card me">
       <div class="card-inner">
@@ -331,7 +611,7 @@ function buildRegionalRows(eraEvents) {
       </div>
     </div>` : '<div class="event-card empty"></div>';
 
-    return `<div class="event-row vis" style="animation-delay:${index * 40}ms">
+    return `<div class="event-row vis${rowClass}" data-event-id="${event.id}" style="animation-delay:${index * 40}ms">
       <div>${meCard}</div>
       <div class="event-node">
         <div class="node-year">${event.yearShort}</div>
@@ -368,8 +648,9 @@ function buildReadingCards(eraEvents) {
     const meTitle = escapeInlineArg(event.me?.title || '');
     const factNote = event.factAsOf ? `<div class="reading-fact">事实冻结：${event.factAsOf}${event.status ? ` · 状态：${event.status}` : ''}</div>` : '';
     const worldAside = event.world ? `<div class="reading-aside"><strong>同期世界：</strong>${event.world.title}。${event.world.desc}</div>` : '';
+    const highlightClass = event.id === highlightedEventId ? ' highlight-target' : '';
 
-    return `<article class="reading-card">
+    return `<article class="reading-card${highlightClass}" data-event-id="${event.id}">
       <div class="reading-head">
         <div>
           <div class="reading-kicker">${event.yearShort} · ${event.me?.tag || '区域节点'}</div>
@@ -594,7 +875,81 @@ function closeMap() {
   document.getElementById('mapModal').classList.remove('open');
 }
 
+function getEventNeighbors(event) {
+  const index = sortedEvents.findIndex(item => item.id === event.id);
+  if (index === -1) return { previousEvent: null, nextEvent: null };
+  return {
+    previousEvent: sortedEvents[index - 1] || null,
+    nextEvent: sortedEvents[index + 1] || null
+  };
+}
+
+function buildDetailJumpCard(label, copy, targetEvent, directionLabel) {
+  if (!targetEvent) return '';
+  return `
+    <section class="detail-jump-card">
+      <div class="detail-jump-label">${label}</div>
+      <div class="detail-jump-copy">${escapeHtml(copy)}</div>
+      <button class="detail-jump-link" type="button" onclick="jumpToDetailEvent('${targetEvent.id}', event)">
+        ${escapeHtml(directionLabel)}：${escapeHtml(targetEvent.yearShort)} · ${escapeHtml(targetEvent.me?.title || targetEvent.id)}
+      </button>
+    </section>
+  `;
+}
+
+function buildDetailJumpSection(event) {
+  const { previousEvent, nextEvent } = getEventNeighbors(event);
+  const previousCard = buildDetailJumpCard('从上一节点走到这里', event.bridgeFromPrev, previousEvent, '回看上一章');
+  const nextCard = buildDetailJumpCard('接下来会走向哪里', event.bridgeToNext, nextEvent, '继续下一章');
+
+  if (!previousCard && !nextCard) return '';
+  return `<div class="detail-jumps">${previousCard}${nextCard}</div>`;
+}
+
+function openDetailByEvent(event, options = {}) {
+  const { evt = null, tag = '', title = '', year = '', detailKey = '' } = options;
+  if (evt) evt.stopPropagation();
+
+  const resolvedDetailKey = detailKey || event.me?.dk || event.world?.dk;
+  const detailTag = tag || event.me?.tag || event.world?.tag || '区域节点';
+  const detailTitle = title || event.me?.title || event.world?.title || event.id;
+  const detailYear = year || event.year;
+
+  document.getElementById('detailTag').textContent = detailTag;
+  document.getElementById('detailHeadTitle').textContent = detailTitle;
+  document.getElementById('detailYear').textContent = detailYear;
+  document.getElementById('detailBody').innerHTML = `${getDetail(resolvedDetailKey)}${buildDetailJumpSection(event)}`;
+  document.getElementById('detailModal').classList.add('open');
+  document.body.classList.add('detail-open');
+}
+
+function jumpToDetailEvent(eventId, evt) {
+  if (evt) evt.stopPropagation();
+  const event = getEventById(eventId);
+  if (!event) return;
+
+  if (currentMode === 'regional') {
+    if (currentEra !== 'all' && currentEra !== event.era) {
+      currentEra = 'all';
+      syncEraFilters();
+    }
+    clearExpandedSections();
+    expandedSections.add(getSectionKey(event.era));
+    highlightEventTarget(event.id);
+    rebuildTimeline();
+    setTimeout(() => revealEventInTimeline(event.id), 70);
+  }
+
+  openDetailByEvent(event);
+}
+
 function openDetail(tag, title, year, dk, evt) {
+  const event = getEventByDetailKey(dk);
+  if (event) {
+    openDetailByEvent(event, { evt, tag, title, year, detailKey: dk });
+    return;
+  }
+
   if (evt) evt.stopPropagation();
   document.getElementById('detailTag').textContent = tag;
   document.getElementById('detailHeadTitle').textContent = title;

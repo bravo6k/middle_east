@@ -38,6 +38,27 @@ header h1{font-family:'Fraunces',serif;font-weight:700;font-size:clamp(2.5rem,8v
 .overview-card .overview-body li{margin-bottom:5px}
 .overview-card .overview-body strong{color:var(--gold-l);font-weight:600}
 
+/* ── Search Panel ── */
+.search-shell{max-width:1180px;margin:0 auto 14px;padding:0 20px}
+.search-panel{padding:18px 20px;background:rgba(255,250,242,.84);border:1px solid var(--edge);border-radius:24px;box-shadow:var(--shadow);backdrop-filter:blur(18px)}
+.search-input-wrap{display:flex;flex-direction:column;gap:8px}
+.search-label{font-family:'Sora',sans-serif;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:#6b7280}
+.search-input{width:100%;padding:15px 18px;border:1px solid rgba(18,38,63,.12);border-radius:18px;background:rgba(255,255,255,.9);font:500 15px/1.4 'Sora',sans-serif;color:var(--ink-2);outline:none;transition:border-color .2s ease, box-shadow .2s ease, transform .2s ease}
+.search-input:focus{border-color:rgba(79,124,255,.36);box-shadow:0 0 0 4px rgba(79,124,255,.12);transform:translateY(-1px)}
+.search-input::placeholder{color:#8a93a2}
+.search-hint{margin-top:10px;font-size:12px;line-height:1.6;color:#667085}
+.search-results{display:grid;gap:10px;margin-top:16px}
+.search-results[hidden]{display:none}
+.search-result-btn{width:100%;display:block;text-align:left;padding:14px 16px;border:none;border-radius:18px;background:rgba(18,38,63,.05);cursor:pointer;transition:transform .18s ease, background .18s ease, box-shadow .18s ease}
+.search-result-btn:hover,.search-result-btn.active{background:linear-gradient(135deg,rgba(255,127,77,.14),rgba(79,124,255,.16));box-shadow:0 14px 30px rgba(18,38,63,.1);transform:translateY(-1px)}
+.search-result-top{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
+.search-result-kicker{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:#6b7280}
+.search-result-year{font-size:11px;color:#8a93a2;white-space:nowrap}
+.search-result-title{margin-top:6px;font-family:'Fraunces',serif;font-size:24px;line-height:1.2;letter-spacing:-.03em;color:var(--ink-2)}
+.search-result-meta{margin-top:8px;font-size:12px;line-height:1.6;color:#495567}
+.search-result-lines{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.search-empty{padding:14px 16px;border-radius:18px;background:rgba(18,38,63,.04);font-size:13px;line-height:1.7;color:#667085}
+
 /* ── Filter Bar ── */
 .filter-bar{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;padding:14px 20px;background:rgba(28,16,8,.9);border-bottom:1px solid var(--div);position:sticky;top:0;z-index:200;backdrop-filter:blur(12px)}
 .filter-btn{font-family:'Cinzel',serif;font-size:10px;letter-spacing:2px;padding:6px 14px;border:1px solid var(--div);background:transparent;color:rgba(242,228,196,.55);cursor:pointer;transition:all .25s;text-transform:uppercase}
@@ -67,6 +88,8 @@ header h1{font-family:'Fraunces',serif;font-weight:700;font-size:clamp(2.5rem,8v
 .era-content.open{display:block}
 .event-row{display:grid;grid-template-columns:1fr 82px 1fr;align-items:start;margin-bottom:14px;opacity:0;animation:fadeUp .5s ease forwards;animation-play-state:paused}
 .event-row.vis{animation-play-state:running}
+.event-row.highlight-target .card-inner,.reading-card.highlight-target{box-shadow:0 0 0 2px rgba(255,127,77,.22),0 22px 46px rgba(79,124,255,.16)!important}
+.event-row.highlight-target .card-inner{background:linear-gradient(135deg,rgba(255,127,77,.12),rgba(79,124,255,.12))!important}
 @keyframes fadeUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
 
 /* ── Event Cards ── */
@@ -177,10 +200,17 @@ header h1{font-family:'Fraunces',serif;font-weight:700;font-size:clamp(2.5rem,8v
 #detailBody ul{margin:0 0 13px 18px}
 #detailBody li{margin-bottom:7px}
 #detailBody strong{color:var(--gold-l);font-weight:600}
+.detail-jumps{display:grid;gap:12px;margin-top:28px;padding-top:22px;border-top:1px solid rgba(18,38,63,.12)}
+.detail-jump-card{padding:16px 18px;border-radius:20px;background:rgba(18,38,63,.05)}
+.detail-jump-label{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:#6b7280}
+.detail-jump-copy{margin-top:8px;font-size:14px;line-height:1.8;color:#425061}
+.detail-jump-link{margin-top:12px;display:inline-flex;align-items:center;gap:8px;padding:9px 14px;border:none;border-radius:999px;background:rgba(79,124,255,.14);color:#21476f;font:600 12px/1 'Sora',sans-serif;cursor:pointer;transition:background .18s ease,color .18s ease,transform .18s ease}
+.detail-jump-link:hover{background:#4f7cff;color:#fff;transform:translateY(-1px)}
 body.detail-open header,
 body.detail-open .mode-bar,
 body.detail-open .sub-selector,
 body.detail-open .overview-card,
+body.detail-open .search-shell,
 body.detail-open .filter-bar,
 body.detail-open .col-headers,
 body.detail-open .timeline,
@@ -573,6 +603,11 @@ body.detail-open .legend{
   .card-title{font-size:11px}.card-desc{font-size:10px;line-height:1.45}
   .card-actions{gap:4px;flex-wrap:wrap}.act-btn{font-size:8px;padding:4px 8px}
   .overview-card{padding:16px;margin:8px 12px}
+  .search-shell{padding:0 12px}
+  .search-panel{padding:15px 16px;border-radius:20px}
+  .search-input{padding:13px 15px;font-size:14px}
+  .search-result-btn{padding:13px 14px}
+  .search-result-title{font-size:20px}
   .era-toggle{padding:16px}
   .era-toggle-state{position:static;display:block;margin-top:12px}
   .era-toggle-label{padding-right:0}
@@ -590,6 +625,7 @@ body.detail-open .legend{
   #detailHead{padding:18px 18px 14px}
   #detailHeadTitle{font-size:18px}
   #detailBody{padding:18px 18px 24px;font-size:13.5px}
+  .detail-jump-card{padding:14px 15px}
 }
 @media(max-width:420px){
   .timeline{padding:0 8px 56px}
@@ -627,6 +663,17 @@ body.detail-open .legend{
 <div class="overview-card" id="overviewCard">
   <h2 id="overviewTitle"></h2>
   <div class="overview-body" id="overviewBody"></div>
+</div>
+
+<div class="search-shell">
+  <div class="search-panel">
+    <div class="search-input-wrap">
+      <label class="search-label" for="eventSearchInput">事件搜索</label>
+      <input id="eventSearchInput" class="search-input" type="search" placeholder="搜事件、年份、国家、专题，比如 1967 / 伊朗 / 巴以 / 萨达姆" autocomplete="off">
+    </div>
+    <div class="search-hint">支持关键词直达，匹配标题、标签、年份、简介、国家名和专题名。</div>
+    <div id="eventSearchResults" class="search-results" hidden></div>
+  </div>
 </div>
 
 <!-- Era Filter -->
