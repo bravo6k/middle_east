@@ -15,22 +15,6 @@ let highlightedEventId = null;
 let highlightResetTimer = null;
 let isMapPanelOpen = false;
 let isDetailPanelOpen = false;
-const EFFECT_TOGGLE_STORAGE_KEY = 'middle-east-ui-effects';
-const EFFECT_TOGGLE_DEFAULTS = {
-  overlay: true,
-  pageBlur: true,
-  glow: true,
-  shadow: true,
-  surface: true
-};
-const EFFECT_TOGGLE_CLASSNAMES = {
-  overlay: 'fx-overlay-off',
-  pageBlur: 'fx-page-blur-off',
-  glow: 'fx-glow-off',
-  shadow: 'fx-shadow-off',
-  surface: 'fx-surface-off'
-};
-let effectToggles = { ...EFFECT_TOGGLE_DEFAULTS };
 const sortedEvents = [...events].sort((a, b) => a.sortKey - b.sortKey);
 const countryLookup = new Map(COUNTRIES.map(item => [item.id, item]));
 const conflictLookup = new Map(CONFLICTS.map(item => [item.id, item]));
@@ -192,67 +176,6 @@ function syncContextModal() {
   if (isOpen && leafletMap) {
     setTimeout(() => leafletMap.invalidateSize(), 40);
   }
-}
-
-function persistEffectToggles() {
-  try {
-    localStorage.setItem(EFFECT_TOGGLE_STORAGE_KEY, JSON.stringify(effectToggles));
-  } catch (error) {
-    // Ignore storage errors so the controls still work in restricted environments.
-  }
-}
-
-function loadEffectToggles() {
-  try {
-    const raw = localStorage.getItem(EFFECT_TOGGLE_STORAGE_KEY);
-    if (!raw) return;
-    const parsed = JSON.parse(raw);
-    effectToggles = {
-      ...EFFECT_TOGGLE_DEFAULTS,
-      ...Object.fromEntries(
-        Object.keys(EFFECT_TOGGLE_DEFAULTS).map(key => [key, typeof parsed?.[key] === 'boolean' ? parsed[key] : EFFECT_TOGGLE_DEFAULTS[key]])
-      )
-    };
-  } catch (error) {
-    effectToggles = { ...EFFECT_TOGGLE_DEFAULTS };
-  }
-}
-
-function syncEffectToggleInputs() {
-  document.querySelectorAll('[data-fx-toggle]').forEach(input => {
-    input.checked = effectToggles[input.dataset.fxToggle] !== false;
-  });
-}
-
-function applyEffectToggles() {
-  Object.entries(EFFECT_TOGGLE_CLASSNAMES).forEach(([key, className]) => {
-    document.body.classList.toggle(className, effectToggles[key] === false);
-  });
-  syncEffectToggleInputs();
-}
-
-function updateEffectToggle(key, enabled) {
-  if (!(key in EFFECT_TOGGLE_DEFAULTS)) return;
-  effectToggles[key] = enabled;
-  persistEffectToggles();
-  applyEffectToggles();
-}
-
-function resetEffectToggles() {
-  effectToggles = { ...EFFECT_TOGGLE_DEFAULTS };
-  persistEffectToggles();
-  applyEffectToggles();
-}
-
-function initEffectLab() {
-  loadEffectToggles();
-  applyEffectToggles();
-
-  document.getElementById('effectLab')?.addEventListener('change', event => {
-    const input = event.target.closest('[data-fx-toggle]');
-    if (!input) return;
-    updateEffectToggle(input.dataset.fxToggle, input.checked);
-  });
 }
 
 function buildSearchIndexText(event) {
@@ -1143,7 +1066,6 @@ document.addEventListener('keydown', event => {
   if (document.getElementById('contextModal').classList.contains('open')) closeContext();
 });
 
-initEffectLab();
 initNavigation();
 renderOverview();
 rebuildTimeline();

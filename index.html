@@ -225,37 +225,6 @@ body.context-open .col-headers,
 body.context-open .timeline,
 body.context-open .legend{filter:blur(1px);opacity:.24;transition:opacity .2s ease}
 
-.effect-lab{position:absolute;left:18px;bottom:18px;width:min(280px,calc(100% - 36px));padding:14px 14px 12px;border-radius:20px;background:rgba(255,250,242,.94);border:1px solid rgba(18,38,63,.1);box-shadow:0 18px 40px rgba(18,38,63,.14);z-index:4;backdrop-filter:blur(12px)}
-.effect-lab-kicker{font-family:'Sora',sans-serif;font-size:9px;letter-spacing:.2em;text-transform:uppercase;color:#5d6978}
-.effect-lab-title{margin-top:4px;font-family:'Fraunces',serif;font-size:20px;line-height:1.1;color:var(--ink-2)}
-.effect-lab-copy{margin-top:6px;font-size:12px;line-height:1.55;color:#5a6777}
-.effect-toggle-list{display:grid;gap:8px;margin-top:12px}
-.effect-toggle{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:8px 10px;border-radius:14px;background:rgba(18,38,63,.04)}
-.effect-toggle-copy{flex:1;min-width:0}
-.effect-toggle-name{display:block;font-size:12px;font-weight:700;color:#10253d}
-.effect-toggle-desc{display:block;margin-top:2px;font-size:11px;line-height:1.5;color:#5c6776}
-.effect-toggle input{margin-top:2px;inline-size:18px;block-size:18px;accent-color:#21476f;cursor:pointer}
-.effect-lab-actions{display:flex;justify-content:flex-end;margin-top:12px}
-.effect-lab-reset{border:none;border-radius:999px;padding:8px 12px;background:rgba(18,38,63,.08);color:#17324f;font:600 11px/1 'Sora',sans-serif;cursor:pointer;transition:background .18s ease,color .18s ease}
-.effect-lab-reset:hover{background:#17324f;color:#fff}
-
-body.fx-overlay-off #contextModal{background:rgba(17,28,45,.22)}
-body.fx-page-blur-off.context-open header,
-body.fx-page-blur-off.context-open .mode-bar,
-body.fx-page-blur-off.context-open .sub-selector,
-body.fx-page-blur-off.context-open .overview-card,
-body.fx-page-blur-off.context-open .search-shell,
-body.fx-page-blur-off.context-open .filter-bar,
-body.fx-page-blur-off.context-open .col-headers,
-body.fx-page-blur-off.context-open .timeline,
-body.fx-page-blur-off.context-open .legend{filter:none!important;opacity:1!important}
-body.fx-glow-off #contextCanvas::before{display:none}
-body.fx-shadow-off .context-panel{box-shadow:0 10px 22px rgba(18,38,63,.1)!important}
-body.fx-surface-off #mapPanel{background:#13253d}
-body.fx-surface-off #detailPanel{background:#f7f0e4}
-body.fx-surface-off #mapHeader{background:rgba(255,255,255,.06)}
-body.fx-surface-off #detailHead{background:rgba(18,38,63,.05)}
-
 #overviewCard,.era-section,.event-row,.reading-card{scroll-margin-top:96px}
 
 /* ── Legend ── */
@@ -635,7 +604,6 @@ body.context-open .legend{
   #contextCanvas.detail-only{grid-template-columns:1fr}
   #contextCanvas.both-open{grid-template-rows:minmax(250px,38vh) minmax(0,1fr)}
   #mapLegend{left:16px;right:16px;bottom:16px;max-width:none}
-  .effect-lab{position:static;width:100%;margin-top:10px}
 }
 @media(max-width:600px){
   #contextModal{padding:10px}
@@ -781,51 +749,6 @@ body.context-open .legend{
       <div id="detailBody"></div>
     </section>
 
-    <aside id="effectLab" class="effect-lab">
-      <div class="effect-lab-kicker">Visual Lab</div>
-      <div class="effect-lab-title">效果实验台</div>
-      <div class="effect-lab-copy">建议一次只关一项，边滚动详情边观察哪一层一开就开始掉帧。</div>
-      <div class="effect-toggle-list">
-        <label class="effect-toggle">
-          <span class="effect-toggle-copy">
-            <span class="effect-toggle-name">遮罩层</span>
-            <span class="effect-toggle-desc">控制工作台外层的暗色覆盖。</span>
-          </span>
-          <input type="checkbox" data-fx-toggle="overlay" checked>
-        </label>
-        <label class="effect-toggle">
-          <span class="effect-toggle-copy">
-            <span class="effect-toggle-name">页面退场</span>
-            <span class="effect-toggle-desc">控制背后页面的虚化和压暗。</span>
-          </span>
-          <input type="checkbox" data-fx-toggle="pageBlur" checked>
-        </label>
-        <label class="effect-toggle">
-          <span class="effect-toggle-copy">
-            <span class="effect-toggle-name">环境光晕</span>
-            <span class="effect-toggle-desc">控制工作台后方的橙蓝氛围光。</span>
-          </span>
-          <input type="checkbox" data-fx-toggle="glow" checked>
-        </label>
-        <label class="effect-toggle">
-          <span class="effect-toggle-copy">
-            <span class="effect-toggle-name">面板阴影</span>
-            <span class="effect-toggle-desc">控制地图和详情面板的浮起感。</span>
-          </span>
-          <input type="checkbox" data-fx-toggle="shadow" checked>
-        </label>
-        <label class="effect-toggle">
-          <span class="effect-toggle-copy">
-            <span class="effect-toggle-name">表面渐变</span>
-            <span class="effect-toggle-desc">控制面板与头部的材质渐变。</span>
-          </span>
-          <input type="checkbox" data-fx-toggle="surface" checked>
-        </label>
-      </div>
-      <div class="effect-lab-actions">
-        <button class="effect-lab-reset" type="button" onclick="resetEffectToggles()">恢复默认</button>
-      </div>
-    </aside>
   </div>
 </div>
 
