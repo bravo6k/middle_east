@@ -13,6 +13,24 @@ let currentSearchResults = [];
 let activeSearchResultIndex = 0;
 let highlightedEventId = null;
 let highlightResetTimer = null;
+let isMapPanelOpen = false;
+let isDetailPanelOpen = false;
+const EFFECT_TOGGLE_STORAGE_KEY = 'middle-east-ui-effects';
+const EFFECT_TOGGLE_DEFAULTS = {
+  overlay: true,
+  pageBlur: true,
+  glow: true,
+  shadow: true,
+  surface: true
+};
+const EFFECT_TOGGLE_CLASSNAMES = {
+  overlay: 'fx-overlay-off',
+  pageBlur: 'fx-page-blur-off',
+  glow: 'fx-glow-off',
+  shadow: 'fx-shadow-off',
+  surface: 'fx-surface-off'
+};
+let effectToggles = { ...EFFECT_TOGGLE_DEFAULTS };
 const sortedEvents = [...events].sort((a, b) => a.sortKey - b.sortKey);
 const countryLookup = new Map(COUNTRIES.map(item => [item.id, item]));
 const conflictLookup = new Map(CONFLICTS.map(item => [item.id, item]));
@@ -153,6 +171,87 @@ function switchMode(mode, options = {}) {
 function syncEraFilters() {
   document.querySelectorAll('.filter-btn').forEach(item => {
     item.classList.toggle('active', item.dataset.era === currentEra);
+  });
+}
+
+function syncContextModal() {
+  const modal = document.getElementById('contextModal');
+  const canvas = document.getElementById('contextCanvas');
+  const mapPanel = document.getElementById('mapPanel');
+  const detailPanel = document.getElementById('detailPanel');
+  const isOpen = isMapPanelOpen || isDetailPanelOpen;
+
+  modal.classList.toggle('open', isOpen);
+  mapPanel.classList.toggle('open', isMapPanelOpen);
+  detailPanel.classList.toggle('open', isDetailPanelOpen);
+  canvas.classList.toggle('both-open', isMapPanelOpen && isDetailPanelOpen);
+  canvas.classList.toggle('map-only', isMapPanelOpen && !isDetailPanelOpen);
+  canvas.classList.toggle('detail-only', isDetailPanelOpen && !isMapPanelOpen);
+  document.body.classList.toggle('context-open', isOpen);
+
+  if (isOpen && leafletMap) {
+    setTimeout(() => leafletMap.invalidateSize(), 40);
+  }
+}
+
+function persistEffectToggles() {
+  try {
+    localStorage.setItem(EFFECT_TOGGLE_STORAGE_KEY, JSON.stringify(effectToggles));
+  } catch (error) {
+    // Ignore storage errors so the controls still work in restricted environments.
+  }
+}
+
+function loadEffectToggles() {
+  try {
+    const raw = localStorage.getItem(EFFECT_TOGGLE_STORAGE_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    effectToggles = {
+      ...EFFECT_TOGGLE_DEFAULTS,
+      ...Object.fromEntries(
+        Object.keys(EFFECT_TOGGLE_DEFAULTS).map(key => [key, typeof parsed?.[key] === 'boolean' ? parsed[key] : EFFECT_TOGGLE_DEFAULTS[key]])
+      )
+    };
+  } catch (error) {
+    effectToggles = { ...EFFECT_TOGGLE_DEFAULTS };
+  }
+}
+
+function syncEffectToggleInputs() {
+  document.querySelectorAll('[data-fx-toggle]').forEach(input => {
+    input.checked = effectToggles[input.dataset.fxToggle] !== false;
+  });
+}
+
+function applyEffectToggles() {
+  Object.entries(EFFECT_TOGGLE_CLASSNAMES).forEach(([key, className]) => {
+    document.body.classList.toggle(className, effectToggles[key] === false);
+  });
+  syncEffectToggleInputs();
+}
+
+function updateEffectToggle(key, enabled) {
+  if (!(key in EFFECT_TOGGLE_DEFAULTS)) return;
+  effectToggles[key] = enabled;
+  persistEffectToggles();
+  applyEffectToggles();
+}
+
+function resetEffectToggles() {
+  effectToggles = { ...EFFECT_TOGGLE_DEFAULTS };
+  persistEffectToggles();
+  applyEffectToggles();
+}
+
+function initEffectLab() {
+  loadEffectToggles();
+  applyEffectToggles();
+
+  document.getElementById('effectLab')?.addEventListener('change', event => {
+    const input = event.target.closest('[data-fx-toggle]');
+    if (!input) return;
+    updateEffectToggle(input.dataset.fxToggle, input.checked);
   });
 }
 
@@ -403,6 +502,17 @@ function renderOverview() {
   card.classList.add('open');
 }
 
+function scrollSelectionNarrativeIntoView() {
+  const target = document.getElementById('overviewCard').classList.contains('open')
+    ? document.getElementById('overviewCard')
+    : document.getElementById('timeline');
+
+  if (!target) return;
+  setTimeout(() => {
+    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, 120);
+}
+
 function selectCountry(countryId) {
   currentCountry = countryId;
   clearExpandedSections();
@@ -430,6 +540,7 @@ function selectCountry(countryId) {
 
   renderOverview();
   rebuildTimeline();
+  scrollSelectionNarrativeIntoView();
 }
 
 function getFilteredEvents() {
@@ -553,10 +664,13 @@ function highlightEventTarget(eventId) {
   }, 2600);
 }
 
-function revealEventInTimeline(eventId) {
+function revealEventInTimeline(eventId, options = {}) {
+  const { focusSection = false, block = focusSection ? 'start' : 'center' } = options;
   const target = document.querySelector(`[data-event-id="${eventId}"]`);
   if (!target) return;
-  target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+  const scrollTarget = focusSection ? target.closest('.era-section') || target : target;
+  scrollTarget.scrollIntoView({ behavior: 'smooth', block });
 }
 
 function openSearchResult(eventId) {
@@ -581,8 +695,10 @@ function buildRegionalRows(eraEvents) {
     const dotClass = (event.me && event.world) ? 'both' : (!event.me ? 'wo' : '');
     const meTag = escapeInlineArg(event.me?.tag || '');
     const meTitle = escapeInlineArg(event.me?.title || '');
+    const meRid = escapeInlineArg(event.me?.rid || '');
     const worldTag = escapeInlineArg(event.world?.tag || '');
     const worldTitle = escapeInlineArg(event.world?.title || '');
+    const worldRid = escapeInlineArg(event.world?.rid || '');
     const rowClass = event.id === highlightedEventId ? ' highlight-target' : '';
 
     const meCard = event.me ? `<div class="event-card me">
@@ -593,7 +709,7 @@ function buildRegionalRows(eraEvents) {
         <div class="card-desc">${event.me.desc}</div>
         <div class="card-actions">
           ${event.me.rid ? `<button class="act-btn map-btn" onclick="openMap('${event.me.rid}',event)">地图</button>` : ''}
-          ${event.me.dk ? `<button class="act-btn dtl-btn" onclick="openDetail('${meTag}','${meTitle}','${event.year}','${event.me.dk}',event)">详情</button>` : ''}
+          ${event.me.dk ? `<button class="act-btn dtl-btn" onclick="openDetail('${meTag}','${meTitle}','${event.year}','${event.me.dk}','${meRid}',event)">详情</button>` : ''}
         </div>
         ${buildLineBadges(event)}
       </div>
@@ -606,7 +722,7 @@ function buildRegionalRows(eraEvents) {
         <div class="card-desc">${event.world.desc}</div>
         <div class="card-actions">
           ${event.world.rid ? `<button class="act-btn map-btn" onclick="openMap('${event.world.rid}',event)">地图</button>` : ''}
-          ${event.world.dk ? `<button class="act-btn dtl-btn" onclick="openDetail('${worldTag}','${worldTitle}','${event.year}','${event.world.dk}',event)">详情</button>` : ''}
+          ${event.world.dk ? `<button class="act-btn dtl-btn" onclick="openDetail('${worldTag}','${worldTitle}','${event.year}','${event.world.dk}','${worldRid}',event)">详情</button>` : ''}
         </div>
       </div>
     </div>` : '<div class="event-card empty"></div>';
@@ -646,6 +762,7 @@ function buildReadingCards(eraEvents) {
   return `<div class="reading-list">${eraEvents.map(event => {
     const meTag = escapeInlineArg(event.me?.tag || '');
     const meTitle = escapeInlineArg(event.me?.title || '');
+    const meRid = escapeInlineArg(event.me?.rid || '');
     const factNote = event.factAsOf ? `<div class="reading-fact">事实冻结：${event.factAsOf}${event.status ? ` · 状态：${event.status}` : ''}</div>` : '';
     const worldAside = event.world ? `<div class="reading-aside"><strong>同期世界：</strong>${event.world.title}。${event.world.desc}</div>` : '';
     const highlightClass = event.id === highlightedEventId ? ' highlight-target' : '';
@@ -658,7 +775,7 @@ function buildReadingCards(eraEvents) {
         </div>
         <div class="reading-actions">
           ${event.me?.rid ? `<button class="act-btn map-btn" onclick="openMap('${event.me.rid}',event)">地图</button>` : ''}
-          ${event.me?.dk ? `<button class="act-btn dtl-btn" onclick="openDetail('${meTag}','${meTitle}','${event.year}','${event.me.dk}',event)">详情</button>` : ''}
+          ${event.me?.dk ? `<button class="act-btn dtl-btn" onclick="openDetail('${meTag}','${meTitle}','${event.year}','${event.me.dk}','${meRid}',event)">详情</button>` : ''}
         </div>
       </div>
       <p class="reading-desc">${event.me?.desc || ''}</p>
@@ -697,7 +814,7 @@ function rebuildTimeline() {
     const summary = buildEraSummary(era, eraEvents);
     const content = currentMode === 'regional' ? buildRegionalRows(eraEvents) : buildReadingCards(eraEvents);
 
-    return `<section class="era-section ${isOpen ? 'open' : ''}">
+    return `<section class="era-section ${isOpen ? 'open' : ''}" data-era-section="${era}">
       <button class="era-toggle" data-era-toggle="${era}">
         <div class="era-toggle-main">
           <div class="era-toggle-label">${eraLabels[era]}</div>
@@ -788,8 +905,7 @@ function clearMapLayers() {
   mapLayers = [];
 }
 
-function openMap(rid, evt) {
-  if (evt) evt.stopPropagation();
+function renderMapRegion(rid) {
   const region = R[rid];
   if (!region) return;
 
@@ -808,7 +924,6 @@ function openMap(rid, evt) {
 
   document.getElementById('mapTitle').textContent = region.name;
   document.getElementById('mapSubtitle').textContent = `历史疆域示意图 · ${region.note} · 底图：Google 地图当代国界与地名`;
-  document.getElementById('mapModal').classList.add('open');
   ensureMap();
   clearMapLayers();
 
@@ -871,8 +986,29 @@ function openMap(rid, evt) {
   }, 100);
 }
 
-function closeMap() {
-  document.getElementById('mapModal').classList.remove('open');
+function openMap(rid, evt) {
+  if (evt) evt.stopPropagation();
+  if (!rid) return;
+  isMapPanelOpen = true;
+  syncContextModal();
+  renderMapRegion(rid);
+}
+
+function closeMap(evt) {
+  if (evt) evt.stopPropagation();
+  isMapPanelOpen = false;
+  syncContextModal();
+}
+
+function closeContext(evt) {
+  if (evt) evt.stopPropagation();
+  isMapPanelOpen = false;
+  isDetailPanelOpen = false;
+  syncContextModal();
+}
+
+function maybeCloseContext(evt) {
+  if (evt.target === document.getElementById('contextModal')) closeContext();
 }
 
 function getEventNeighbors(event) {
@@ -907,20 +1043,35 @@ function buildDetailJumpSection(event) {
 }
 
 function openDetailByEvent(event, options = {}) {
-  const { evt = null, tag = '', title = '', year = '', detailKey = '' } = options;
+  const { evt = null, tag = '', title = '', year = '', detailKey = '', mapRid } = options;
   if (evt) evt.stopPropagation();
 
   const resolvedDetailKey = detailKey || event.me?.dk || event.world?.dk;
   const detailTag = tag || event.me?.tag || event.world?.tag || '区域节点';
   const detailTitle = title || event.me?.title || event.world?.title || event.id;
   const detailYear = year || event.year;
+  const resolvedMapRid = typeof mapRid === 'string'
+    ? (mapRid || null)
+    : (event.me?.rid || null);
+
+  const detailPanel = document.getElementById('detailPanel');
+  const detailBody = document.getElementById('detailBody');
 
   document.getElementById('detailTag').textContent = detailTag;
   document.getElementById('detailHeadTitle').textContent = detailTitle;
   document.getElementById('detailYear').textContent = detailYear;
-  document.getElementById('detailBody').innerHTML = `${getDetail(resolvedDetailKey)}${buildDetailJumpSection(event)}`;
-  document.getElementById('detailModal').classList.add('open');
-  document.body.classList.add('detail-open');
+  detailBody.innerHTML = `${getDetail(resolvedDetailKey)}${buildDetailJumpSection(event)}`;
+  detailBody.scrollTop = 0;
+  detailPanel.scrollTop = 0;
+  isDetailPanelOpen = true;
+  isMapPanelOpen = Boolean(resolvedMapRid);
+  syncContextModal();
+
+  if (resolvedMapRid) renderMapRegion(resolvedMapRid);
+  requestAnimationFrame(() => {
+    detailBody.scrollTop = 0;
+    detailPanel.scrollTop = 0;
+  });
 }
 
 function jumpToDetailEvent(eventId, evt) {
@@ -937,35 +1088,42 @@ function jumpToDetailEvent(eventId, evt) {
     expandedSections.add(getSectionKey(event.era));
     highlightEventTarget(event.id);
     rebuildTimeline();
-    setTimeout(() => revealEventInTimeline(event.id), 70);
+    setTimeout(() => revealEventInTimeline(event.id, { focusSection: true, block: 'start' }), 70);
   }
 
   openDetailByEvent(event);
 }
 
-function openDetail(tag, title, year, dk, evt) {
+function openDetail(tag, title, year, dk, mapRid, evt) {
   const event = getEventByDetailKey(dk);
   if (event) {
-    openDetailByEvent(event, { evt, tag, title, year, detailKey: dk });
+    openDetailByEvent(event, { evt, tag, title, year, detailKey: dk, mapRid });
     return;
   }
 
   if (evt) evt.stopPropagation();
+  const detailPanel = document.getElementById('detailPanel');
+  const detailBody = document.getElementById('detailBody');
+
   document.getElementById('detailTag').textContent = tag;
   document.getElementById('detailHeadTitle').textContent = title;
   document.getElementById('detailYear').textContent = year;
-  document.getElementById('detailBody').innerHTML = getDetail(dk);
-  document.getElementById('detailModal').classList.add('open');
-  document.body.classList.add('detail-open');
+  detailBody.innerHTML = getDetail(dk);
+  detailBody.scrollTop = 0;
+  detailPanel.scrollTop = 0;
+  isDetailPanelOpen = true;
+  isMapPanelOpen = Boolean(mapRid);
+  syncContextModal();
+  if (mapRid) renderMapRegion(mapRid);
+  requestAnimationFrame(() => {
+    detailBody.scrollTop = 0;
+    detailPanel.scrollTop = 0;
+  });
 }
 
-function closeDetail() {
-  document.getElementById('detailModal').classList.remove('open');
-  document.body.classList.remove('detail-open');
-}
-
-function maybeCloseDetail(evt) {
-  if (evt.target === document.getElementById('detailModal')) closeDetail();
+function closeDetail(evt) {
+  if (evt) evt.stopPropagation();
+  closeContext();
 }
 
 document.getElementById('filterBar').addEventListener('click', event => {
@@ -980,19 +1138,12 @@ document.getElementById('filterBar').addEventListener('click', event => {
   window.scrollTo({ top: 200, behavior: 'smooth' });
 });
 
-document.getElementById('mapModal').addEventListener('click', event => {
-  if (event.target === event.currentTarget) closeMap();
-});
-
 document.addEventListener('keydown', event => {
   if (event.key !== 'Escape') return;
-  if (document.getElementById('detailModal').classList.contains('open')) {
-    closeDetail();
-    return;
-  }
-  if (document.getElementById('mapModal').classList.contains('open')) closeMap();
+  if (document.getElementById('contextModal').classList.contains('open')) closeContext();
 });
 
+initEffectLab();
 initNavigation();
 renderOverview();
 rebuildTimeline();
